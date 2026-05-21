@@ -159,6 +159,18 @@ axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 | ECS → RDS | RDS 白名单允许 ECS 内网 IP，**不要**把 RDS 3306 暴露公网 |
 | 公网 → RDS | 禁止 |
 
+## Jenkins 自动化部署
+
+详见 [docs/deployment/jenkins.md](./docs/deployment/jenkins.md)。
+
+快速概览：
+
+1. ECS 安装 Node.js 20 + PM2，创建 `/opt/nest-node-service`
+2. ECS 上配置 `.env.production`（RDS、JWT、CORS，只做一次）
+3. Jenkins 安装 Pipeline + SSH Agent 插件，配置 Git 和 ECS SSH 凭证
+4. 创建 Pipeline 任务，Script Path 填 `Jenkinsfile`
+5. push 到 `main` → 自动测试、构建、rsync 部署、PM2 重启
+
 ## 开发命令
 
 ```bash
