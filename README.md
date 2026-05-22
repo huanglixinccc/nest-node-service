@@ -159,7 +159,135 @@ axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 | ECS → RDS | RDS 白名单允许 ECS 内网 IP，**不要**把 RDS 3306 暴露公网 |
 | 公网 → RDS | 禁止 |
 
-## Jenkins 自动化部署
+## ECS 手动发布
+
+不依赖 Jenkins，SSH 登录 ECS 后执行以下流程即可。
+
+### 架构
+
+```
+本地 git push → ECS git pull → npm build → PM2 重启
+```
+
+### 首次部署（只做一次）
+
+```bash
+# SSH 登录 ECS 后
+
+# 1. 克隆代码（国内 ECS 建议用 GitHub 镜像）
+cd /opt
+git clone https://ghfast.top/https://github.com/huanglixinccc/nest-node-service.git nest-node-service
+cd /opt/nest-node-service
+
+# 2. 配置生产环境（只做一次，不要提交到 Git）
+cp .env.production.example .env.production
+vim .env.production
+
+# 3. 创建数据库与表（本机 MySQL 示例）
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS nest_auth CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+# users 表见 docs 或首次开发环境 TypeORM 同步后导出
+
+# 4. 安装 Node 依赖并首次启动
+source /root/.nvm/nvm.sh   # 若使用 nvm
+npm ci
+npm run build
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup   # 按提示再执行一条命令，配置开机自启
+```
+
+`.env.production` 本机 MySQL 示例：
+
+```env
+NODE_ENV=production
+DB_HOST=127.0.0.1
+DB_USERNAME=root
+DB_PASSWORD=你的密码
+DB_DATABASE=nest_auth
+DB_SSL=false
+JWT_SECRET=随机长字符串
+CORS_ORIGINS=http://你的ECS公网IP:3000
+```
+
+### 日常发布（每次改代码后）
+
+**本地：**
+
+```bash
+git add .
+git commit -m "your message"
+git push origin main
+```
+
+**ECS：**
+
+```bash
+cd /opt/nest-node-service
+source /root/.nvm/nvm.sh   # 若使用 nvm
+
+git pull origin main
+npm ci
+npm run build
+pm2 reload ecosystem.config.js --update-env
+```
+
+或使用一键脚本：
+
+```bash
+bash /opt/nest-node-service/scripts/manual-deploy.sh
+```
+
+### git pull 失败时
+
+ECS 直连 GitHub 可能超时，可改用镜像拉取：
+
+```bash
+cd /opt/nest-node-service
+git fetch https://ghfast.top/https://github.com/huanglixinccc/nest-node-service.git main
+git reset --hard FETCH_HEAD
+npm ci && npm run build
+pm2 reload ecosystem.config.js --update-env
+```
+
+### 从本地上传（无法 git pull 时）
+
+```bash
+# 本地
+npm run build
+scp -r dist package.json package-lock.json ecosystem.config.js scripts \
+  root@你的ECS_IP:/opt/nest-node-service/
+
+# ECS
+cd /opt/nest-node-service
+source /root/.nvm/nvm.sh
+npm ci --omit=dev
+pm2 reload ecosystem.config.js --update-env
+```
+
+### 发布后验证
+
+```bash
+pm2 list
+pm2 logs nest-node-service --lines 20
+
+curl http://127.0.0.1:3000/auth/login -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","password":"123456"}'
+```
+
+### 常用 PM2 命令
+
+```bash
+pm2 list                              # 查看进程
+pm2 logs nest-node-service            # 查看日志
+pm2 reload ecosystem.config.js        # 零停机重启
+pm2 stop nest-node-service            # 停止
+pm2 delete nest-node-service          # 删除进程
+```
+
+> `.env.production` 仅保存在 ECS，修改后需执行 `pm2 reload ecosystem.config.js --update-env` 生效。
+
+## Jenkins 自动化部署（可选）
 
 详见 [docs/deployment/jenkins.md](./docs/deployment/jenkins.md)。
 
